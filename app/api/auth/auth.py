@@ -3,9 +3,11 @@ import datetime
 
 
 # FastAPI
-from fastapi import HTTPException, status, Depends, APIRouter, Query
+from fastapi import HTTPException, status, Depends, APIRouter, Query, Form, UploadFile, File
 from fastapi.responses import JSONResponse
 import main
+import shutil
+import os
 from core.confirm_registration import mail_verification_email
 
 from core import security
@@ -24,7 +26,6 @@ headers = {"Access-Control-Allow-Origin": "*",
 @auth_router.get("/mail_verification/{email}")
 def verify_email(email: str):
     try:
-
         main.cursor.execute("""SELECT email FROM users WHERE email=%s""",
                             (email,))
 
@@ -52,16 +53,164 @@ def verify_email(email: str):
                         headers=headers)
 
 
+# @auth_router.post("/add-user")
+# def add_user(user_data: UserAdd):
+#     user_password = user_data.password
+#     user_hashed_password = security.hash_password(user_password)
+#     try:
+#         main.cursor.execute(
+#             "SELECT email FROM users WHERE email = %s",
+#             (user_data.email,))
+#         check_email = main.cursor.fetchone()
+#
+#     except Exception as error:
+#         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#                             detail={"message": error})
+#
+#     if check_email:
+#         raise HTTPException(
+#             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+#             detail="Email is already exists"
+#         )
+#
+#     try:
+#         main.cursor.execute("""INSERT INTO users (name, email, password)
+#                             VALUES (%s, %s, %s) RETURNING *""",
+#                             (user_data.name,
+#                              user_data.email,
+#                              user_hashed_password))
+#     except Exception as error:
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail=error
+#         )
+#
+#     try:
+#         user = main.cursor.fetchone()
+#     except Exception as error:
+#         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#                             detail="Error in user-add fetch!\n"
+#                                    f"ERR: {error}")
+#
+#     if user is None:
+#         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#                             detail="User not created")
+#
+#     mail_verification_email(user_data.email)
+#
+#     main.conn.commit()
+#
+#     return JSONResponse(status_code=status.HTTP_201_CREATED,
+#                         content={"Message": "You have successfully registered"},
+#                         headers=headers)
+
+
+
+
+# @auth_router.post("/add-user")
+# def add_user(name: str = Form(...), email: str = Form(...), password: str = Form(...),
+#              confirm_password: str = Form(...),  phone_number: str = Form(...),
+#              profile_image: UploadFile = File(...)):
+#
+#     current_date_time = (datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S'))
+#     profile_image_name = f"profile_image_{current_date_time}.{profile_image.filename.split('.')[-1]}"
+#
+#     if password != confirm_password:
+#         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+#                             detail="Incorrect password")
+#     user_password = password
+#     user_hashed_password = security.hash_password(user_password)
+#     try:
+#         main.cursor.execute(
+#             "SELECT email FROM users WHERE email = %s",
+#             (email,))
+#         check_email = main.cursor.fetchone()
+#
+#     except Exception as error:
+#         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#                                 detail={"message": error})
+#
+#     if check_email:
+#         raise HTTPException(
+#             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+#             detail="Email is already exists")
+#
+#
+#     try:
+#         main.cursor.execute("""INSERT INTO users (name, email, password, phone_number, address, profile_image)
+#                             VALUES (%s, %s, %s, %s, %s, %s) RETURNING *""",
+#                             (name,email,user_hashed_password, phone_number, address, profile_image_name))
+#
+#     except Exception as error:
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail=error
+#         )
+#
+#
+#     try:
+#
+#         main.conn.commit()
+#     except Exception as error:
+#         main.conn.rollback()
+#         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#                             detail={"message": error})
+#     try:
+#
+#         with open(f"{os.getcwd()}/static/images/profile_image/{profile_image_name}", "wb") as file_object:
+#             shutil.copyfileobj(profile_image.file, file_object)
+#
+#
+#     except Exception as error:
+#         main.conn.rollback()
+#         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#                             detail={"message": error})
+#     try:
+#         user = main.cursor.fetchone()
+#     except Exception as error:
+#         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#                             detail="Error in user-add fetch!\n"
+#                                     f"ERR: {error}")
+#
+#     if user is None:
+#         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#                             detail="User not created")
+#
+#     mail_verification_email(email)
+#
+#     main.conn.commit()
+#
+#     return JSONResponse(status_code=status.HTTP_201_CREATED_OK,
+#                         content={"message": "You have successfully registered"},
+#                         headers=headers)
+
+
 @auth_router.post("/add-user")
-def add_user(user_data: UserAdd):
-    user_password = user_data.password
+def add_user(name: str = Form(...), email: str = Form(...), password: str = Form(...),
+             confirm_password: str = Form(...), phone_number: str = Form(...),
+             profile_image: UploadFile = File(None)): # Changed here
+
+    current_date_time = (datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S'))
+
+    # Setting default profile image if none is provided
+    if profile_image:
+        profile_image_name = f"profile_image_{current_date_time}.{profile_image.filename.split('.')[-1]}"
+    else:
+        profile_image_name = "default-avatar-icon.jpg"  # Default image name
+
+    if password != confirm_password:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail="Incorrect password")
+
+    user_password = password
     user_hashed_password = security.hash_password(user_password)
+
+    # Check if email already exists
     try:
         main.cursor.execute(
             "SELECT email FROM users WHERE email = %s",
-            (user_data.email,))
+            (email,))
         check_email = main.cursor.fetchone()
-
     except Exception as error:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail={"message": error})
@@ -69,21 +218,38 @@ def add_user(user_data: UserAdd):
     if check_email:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Email is already exists"
-        )
+            detail="Email already exists")
 
+    # Insert user into database
     try:
-        main.cursor.execute("""INSERT INTO users (name, email, password)
-                            VALUES (%s, %s, %s) RETURNING *""",
-                            (user_data.name,
-                             user_data.email,
-                             user_hashed_password))
+        main.cursor.execute("""INSERT INTO users (name, email, password, phone_number, profile_image)
+                            VALUES (%s, %s, %s, %s, %s) RETURNING *""",
+                            (name, email, user_hashed_password, phone_number, profile_image_name))
     except Exception as error:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=error
+            detail={"message": error}
         )
 
+    # Commit transaction
+    try:
+        main.conn.commit()
+    except Exception as error:
+        main.conn.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail={"message": error})
+
+    # Save profile image if provided
+    if profile_image:
+        try:
+            with open(f"{os.getcwd()}/static/images/profile_image/{profile_image_name}", "wb") as file_object:
+                shutil.copyfileobj(profile_image.file, file_object)
+        except Exception as error:
+            main.conn.rollback()
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                detail={"message": error})
+
+    # Fetch created user
     try:
         user = main.cursor.fetchone()
     except Exception as error:
@@ -95,19 +261,17 @@ def add_user(user_data: UserAdd):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail="User not created")
 
-    mail_verification_email(user_data.email)
+    mail_verification_email(email)
 
-    main.conn.commit()
-
-    return JSONResponse(status_code=status.HTTP_201_CREATED,
-                        content={"Message": "You have successfully registered"},
-                        headers=headers)
+    # return JSONResponse(status_code=status.HTTP_201_CREATED,
+    #                     content={"message": "You have successfully registered"})
+    return "ok"
 
 
 @auth_router.get("/get-one-user-by-id/{user_id}")
 def get_user_by_id(user_id: int, current_user=Depends(security.get_current_user)):
     try:
-        main.cursor.execute("""SELECT user_id, name, email, phone_number, address, status
+        main.cursor.execute("""SELECT user_id, name, email, phone_number, address, profile_image, status
                    FROM users WHERE user_id=%s""",
                             (user_id,))
 
@@ -135,11 +299,18 @@ def get_user_by_id(user_id: int, current_user=Depends(security.get_current_user)
 
 
 @auth_router.delete("/delete-user/{user_id}")
-def delete_user(user_id: int, current_user=Depends(security.get_current_user)):
-    try:
-        main.cursor.execute("""delete from users where user_id=%s""",
-                            (user_id,))
+def delete_user(user_id: int):
+    # current_user=Depends(security.get_current_user)
 
+    main.cursor.execute("""SELECT * FROM users WHERE user_id=%s""",
+                            (user_id,))
+    user = main.cursor.fetchone()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail={"message": "user not found"})
+    try:
+        main.cursor.execute("""DELETE FROM users WHERE user_id=%s""",
+                            (user_id,))
         main.conn.commit()
     except Exception as error:
         main.conn.rollback()
@@ -149,6 +320,7 @@ def delete_user(user_id: int, current_user=Depends(security.get_current_user)):
     return JSONResponse(status_code=status.HTTP_200_OK,
                         content={"message": "Successfully deleted"},
                         headers=headers)
+
 
 
 @auth_router.post("/login")

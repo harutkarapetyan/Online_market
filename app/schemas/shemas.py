@@ -6,6 +6,7 @@ class UserAdd(BaseModel):
     name: str
     email: EmailStr
     password: str
+    phone_number: str
 
 
 class UserOut(BaseModel):
