@@ -57,6 +57,7 @@ class Food(Base):
     image = Column(String, nullable=False)
     food_name = Column(String, nullable=False)
     description = Column(String, nullable=False)
+    rating = Column(Float, nullable=True)
     restaurant_id = Column(Integer, ForeignKey("restaurants.restaurant_id"))
 
 
