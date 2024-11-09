@@ -4,7 +4,7 @@ import datetime
 
 # FastAPI
 from fastapi import HTTPException, status, Depends, APIRouter, Query, Form, UploadFile, File
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 import main
 import shutil
 import os
@@ -56,15 +56,15 @@ def verify_email(email: str):
 @auth_router.post("/add-user")
 def add_user(name: str = Form(...), email: str = Form(...), password: str = Form(...),
              confirm_password: str = Form(...), phone_number: str = Form(...),
-             profile_image: UploadFile = File(None)): # Changed here
+             profile_image: UploadFile = File(...)): # Changed here
 
     current_date_time = (datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S'))
 
     # Setting default profile image if none is provided
     if profile_image:
         profile_image_name = f"profile_image_{current_date_time}.{profile_image.filename.split('.')[-1]}"
-    else:
-        profile_image_name = "default-avatar-icon.jpg"  # Default image name
+    # else:
+    #     profile_image_name = f"default-avatar_{current_date_time}.{profile_image.filename.split('.')[-1]}"
 
     if password != confirm_password:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -131,13 +131,14 @@ def add_user(name: str = Form(...), email: str = Form(...), password: str = Form
 
     mail_verification_email(email)
 
-    # return JSONResponse(status_code=status.HTTP_201_CREATED,
-    #                     content={"message": "You have successfully registered"})
-    return "ok"
+    return JSONResponse(status_code=status.HTTP_201_CREATED,
+                        content={"message": "You have successfully registered"})
+
 
 
 @auth_router.get("/get-one-user-by-id/{user_id}")
-def get_user_by_id(user_id: int, current_user=Depends(security.get_current_user)):
+def get_user_by_id(user_id: int):
+    # current_user=Depends(security.get_current_user)
     try:
         main.cursor.execute("""SELECT user_id, name, email, phone_number, address, profile_image, status
                    FROM users WHERE user_id=%s""",
@@ -164,6 +165,83 @@ def get_user_by_id(user_id: int, current_user=Depends(security.get_current_user)
 
     return JSONResponse(status_code=status.HTTP_200_OK, content=user,
                         headers=headers)
+
+@auth_router.put("/update_profile_image/{user_id}")
+def update_profile_image(user_id: int,
+                  profile_image: UploadFile = File(...)):
+    # current_user = Depends(security.get_current_user)
+    current_date_time = (datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S'))
+    profile_image_name = f"profile_image_{current_date_time}.{profile_image.filename.split('.')[-1]}"
+
+    try:
+        main.cursor.execute("""SELECT * FROM users WHERE user_id= %s""", (user_id,))
+
+    except Exception as error:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+                            detail={"message": error})
+    try:
+        target_user = main.cursor.fetchone()
+
+    except Exception as error:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail={"message": error})
+
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="User not found")
+
+    old_image_path = target_user.get('profile_image')
+
+    try:
+
+        main.cursor.execute("""UPDATE users SET profile_image = %s WHERE user_id = %s""",
+                            (profile_image_name, user_id))
+
+    except Exception as error:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail={"message": error})
+    try:
+
+        main.conn.commit()
+
+    except Exception as error:
+        main.conn.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail={"message": error})
+
+    try:
+
+        if old_image_path and os.path.exists(f"{os.getcwd()}/static/images/profile_image/{old_image_path}"):
+            os.remove(f"{os.getcwd()}/static/images/profile_image/{old_image_path}")
+
+        with open(f"{os.getcwd()}/static/images/profile_image/{profile_image_name}", "wb") as file_object:
+            shutil.copyfileobj(profile_image.file, file_object)
+
+    except Exception as error:
+        main.conn.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail={"message": str(error)})
+
+    return JSONResponse(status_code=status.HTTP_200_OK,
+                        content={"message": "Profile picture updated successfully"},
+                        headers=headers)
+
+
+
+@auth_router.get("/get_profile_image/{file}")
+def get_profile_image(file: str):
+    path = f"{os.getcwd()}/static/images/profile_image/{file}"
+    if os.path.exists(path):
+        return FileResponse(path)
+    return JSONResponse(
+        headers=headers,
+        status_code=status.HTTP_404_NOT_FOUND,
+        content={
+            "message": "File not found"
+        }
+    )
+
 
 
 @auth_router.delete("/delete-user/{user_id}")
@@ -251,7 +329,7 @@ def get_all_users(page: int = Query(default=1, ge=1)):
     try:
 
         main.cursor.execute("""
-                   SELECT user_id, name, email, phone_number, address, status 
+                   SELECT user_id, name, email, phone_number, address, profile_image, status 
                    FROM users LIMIT %s OFFSET %s""", (per_page, offset))
 
     except Exception as error:
