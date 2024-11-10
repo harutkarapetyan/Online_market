@@ -250,8 +250,8 @@ def delete_user(user_id: int):
 
     main.cursor.execute("""SELECT * FROM users WHERE user_id=%s""",
                             (user_id,))
-    user = main.cursor.fetchone()
-    if user is None:
+    target_user = main.cursor.fetchone()
+    if target_user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail={"message": "user not found"})
     try:
@@ -262,6 +262,13 @@ def delete_user(user_id: int):
         main.conn.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail={"message": error})
+
+    profile_image_path = os.path.join(os.getcwd(), "static", "images", "profile_image", target_user.get('profile_image', ''))
+
+    if os.path.exists(profile_image_path):
+        os.remove(profile_image_path)
+
+
 
     return JSONResponse(status_code=status.HTTP_200_OK,
                         content={"message": "Successfully deleted"},
@@ -288,8 +295,7 @@ def login(login_data: UserLogin):
     user = dict(user)
     if not user.get("status"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                            detail={"message": """You cannot log in because you have not 
-                                        completed authentication. Please check your email."""})
+                            detail={"message": """You cannot log in because you have not completed authentication. Please check your email."""})
 
     user_hashed_password = user.get("password")
 
