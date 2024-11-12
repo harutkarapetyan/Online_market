@@ -159,50 +159,8 @@ def update_images(drink_id, image_drink: UploadFile = File(...)):
 
 
 
-# @drink_router.delete("/delete_drink/{drink_id}")
-# def delete_drink(drink_id: int):
-#     try:
-#         main.cursor.execute("""SELECT * FROM drinks WHERE drink_id= %s""",
-#                             (drink_id,))
-#     except Exception as error:
-#         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-#                             detail={"message": error})
-#     try:
-#         target_drink = main.cursor.fetchone()
-#
-#     except Exception as error:
-#         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-#                             detail={"message": error})
-#
-#     if target_drink is None:
-#         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-#                             detail="Drink not found")
-#
-#     try:
-#         main.cursor.execute("""DELETE FROM drinks WHERE drink_id=%s""",
-#                             (drink_id,))
-#     except Exception as error:
-#         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-#                             detail={"message": error})
-#     try:
-#         main.conn.commit()
-#
-#     except Exception as error:
-#         main.conn.rollback()
-#         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-#                             detail={"message": "There was an error deleting the drink"
-#                                     f"ERROR: {error}"})
-#
-#     if os.path.exists(target_drink.get('image')):
-#         os.remove(target_drink.get('image'))
-#
-#     return JSONResponse(status_code=status.HTTP_200_OK,
-#                         content={"message": "Drink successfully deleted"},
-#                         headers=headers)
-
 @drink_router.delete("/delete-drink/{drink_id}")
 def delete_drink(drink_id: int):
-    # Ստանում ենք խմիչքի տվյալները
     main.cursor.execute("""SELECT * FROM drinks WHERE drink_id=%s""", (drink_id,))
     target_drink = main.cursor.fetchone()
 
@@ -211,7 +169,6 @@ def delete_drink(drink_id: int):
                             detail={"message": "drink not found"})
 
     try:
-        # Ջնջում ենք խմիչքը տվյալներից
         main.cursor.execute("""DELETE FROM drinks WHERE drink_id=%s""", (drink_id,))
         main.conn.commit()
     except Exception as error:
@@ -219,10 +176,8 @@ def delete_drink(drink_id: int):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail={"message": error})
 
-    # Նկարայի ուղու որոշում
     drink_image_path = os.path.join(os.getcwd(), "static", "images", "drink", target_drink.get('image', ''))
 
-    # Եթե նկարն առկա է, ջնջում ենք այն
     if os.path.exists(drink_image_path):
         os.remove(drink_image_path)
 
