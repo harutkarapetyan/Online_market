@@ -57,7 +57,7 @@ class Food(Base):
     image = Column(String, nullable=False)
     food_name = Column(String, nullable=False)
     description = Column(String, nullable=False)
-    rating = Column(Float, nullable=True)
+    rating = Column(Float, nullable=False)
     restaurant_id = Column(Integer, ForeignKey("restaurants.restaurant_id"))
 
 
@@ -100,3 +100,17 @@ class RessetPassword(Base):
     password_resset_id = Column(Integer, nullable=False, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.user_id"))
     code = Column(Integer, nullable=False, unique=True)
+
+
+class Drinks(Base):
+    __tablename__ = "drinks"
+
+    drink_id = Column(Integer, nullable=False, primary_key=True)
+    kind = Column(String, nullable=False)
+    price = Column(Integer, nullable=False)
+    image = Column(String, nullable=False)
+    drink_name = Column(String, nullable=False)
+    description = Column(String, nullable=False)
+    rating = Column(Float, nullable=False)
+    restaurant_id = Column(Integer, ForeignKey("restaurants.restaurant_id"))
+

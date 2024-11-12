@@ -55,3 +55,13 @@ class AddCard(BaseModel):
     card_valid_thru: str
     card_name: str
     card_cvv: int
+
+
+
+class UpdateDrink(BaseModel):
+
+    kind: str
+    price: float
+    drink_name: str
+    description: str
+    restaurant_id: int
