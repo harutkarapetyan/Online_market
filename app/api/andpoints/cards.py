@@ -181,3 +181,5 @@ def change_main_card(card_id: int, db: Session = Depends(get_db), current_user=D
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"message": f"There was an error updating the card status. ERROR: {error}"}
         )
+
+

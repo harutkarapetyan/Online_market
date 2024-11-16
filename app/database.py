@@ -13,6 +13,7 @@ Base = declarative_base()
 
 
 
+
 def check_connection():
     while True:
         try:
@@ -32,3 +33,5 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
