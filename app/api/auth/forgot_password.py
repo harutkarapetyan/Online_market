@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from services.service_email import send_email
 from core import security
 from database import get_db
-from models.models import User, RessetPassword
+from models.models import User, ResetPassword
 from services.db_service import get_row, add_row
 from schemas.shemas import PasswordReset
 
@@ -53,7 +53,7 @@ def forgot_password(email: str, db: Session = Depends(get_db)):
                                     "detail": str(error)})
 
     try:
-        reset_entry = RessetPassword(user_id=target_user.user_id, code=code)  # Create instance of RessetPassword model
+        reset_entry = ResetPassword(user_id=target_user.user_id, code=code)  # Create instance of RessetPassword model
         db.add(reset_entry)
         db.commit()
         db.refresh(reset_entry)
@@ -85,7 +85,7 @@ def reset_password(reset_data: PasswordReset, db: Session = Depends(get_db)):
             )
 
 
-        reset = get_row(db, RessetPassword, {"user_id": target_user.user_id})
+        reset = get_row(db, ResetPassword, {"user_id": target_user.user_id})
 
 
         if reset is None:

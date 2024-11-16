@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker
 import time
 
 # DATABASE_URL = "postgresql+psycopg2://postgres:password@localhost/new_menu_am"
-DATABASE_URL = "mysql+pymysql://root:password@localhost:3306/newmenuam"
+DATABASE_URL = "mysql+pymysql://root:password@localhost:3306/new_manu_am"
 
 engine = create_engine(DATABASE_URL,echo=True)
 
