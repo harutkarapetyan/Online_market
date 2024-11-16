@@ -1,11 +1,14 @@
-from fastapi import HTTPException, status, APIRouter, UploadFile, File, Form, Query
+from fastapi import HTTPException, status, APIRouter, UploadFile, File, Form, Depends, Query
 from fastapi.responses import JSONResponse, FileResponse
+from enum import Enum
 import os
 import shutil
-import main
 import datetime
-
+from sqlalchemy.orm import Session
+from sqlalchemy import func
 from schemas.shemas import UpdateRestaurant
+from models.models import Restaurant, Food
+from database import get_db
 
 restaurant_router = APIRouter(tags=["restaurant"], prefix="/restaurant")
 
@@ -14,87 +17,77 @@ headers = {"Access-Control-Allow-Origin": "*",
            "Access-Control-Allow-Headers": "Content-Type, Authorization",
            "Access-Control-Allow-Credentials": "true"}
 
+class RestaurantType(str, Enum):
+    cafe = "cafe"
+    bistro = "bistro"
+    diner = "diner"
+    sushi_restaurant = "sushi_restaurant"
+
 
 @restaurant_router.post("/add_restaurant")
-def add_restaurant(restaurant_name: str = Form(...), kind: str = Form(...), description: str = Form(...),
+def add_restaurant(restaurant_name: str = Form(...), kind: RestaurantType = Form(...), description: str = Form(...),
                    restaurant_email: str = Form(...), phone_number: str = Form(...),
                    address: str = Form(...), rating: float = Form(), image_logo: UploadFile = File(...),
-                   image_background: UploadFile = File(...)):
+                   image_background: UploadFile = File(...), db: Session = Depends(get_db)):
 
-    current_date_time = (datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S'))
+    current_date_time = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
     logo_image_name = f"logo_image_{current_date_time}.{image_logo.filename.split('.')[-1]}"
     background_image_name = f"background_image_{current_date_time}.{image_background.filename.split('.')[-1]}"
 
     try:
-
-        main.cursor.execute("""INSERT INTO restaurants (restaurant_name, kind, description, restaurant_email, phone_number,
-                         address, rating, background_image, logo) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                            (restaurant_name, kind, description, restaurant_email,
-                             phone_number, address, rating, background_image_name,
-                             logo_image_name))
+        new_restaurant = Restaurant(
+            restaurant_name=restaurant_name,
+            kind=kind,
+            description=description,
+            restaurant_email=restaurant_email,
+            phone_number=phone_number,
+            address=address,
+            rating=rating,
+            logo=logo_image_name,
+            background_image=background_image_name
+        )
+        db.add(new_restaurant)
+        db.commit()
     except Exception as error:
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
-    try:
+                            detail={"message": str(error)})
 
-        main.conn.commit()
-    except Exception as error:
-        main.conn.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
     try:
-
+        # Save images to disk
         with open(f"{os.getcwd()}/static/images/logo/{logo_image_name}", "wb") as file_object:
             shutil.copyfileobj(image_logo.file, file_object)
 
         with open(f"{os.getcwd()}/static/images/background/{background_image_name}", "wb") as file_object:
             shutil.copyfileobj(image_background.file, file_object)
-
     except Exception as error:
-        main.conn.rollback()
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
+                            detail={"message": str(error)})
 
     return JSONResponse(status_code=status.HTTP_200_OK,
                         content={"message": "Restaurant successfully added"},
                         headers=headers)
 
-
 @restaurant_router.put("/update_restaurant/{restaurant_id}")
-def update_restaurant(restaurant_id: int, data: UpdateRestaurant):
-    try:
-        main.cursor.execute("""SELECT * FROM restaurants WHERE restaurant_id= %s""",
-                            (restaurant_id,))
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
-    try:
-        target_restaurant = main.cursor.fetchone()
-
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
+def update_restaurant(restaurant_id: int, data: UpdateRestaurant, db: Session = Depends(get_db)):
+    target_restaurant = db.query(Restaurant).filter(Restaurant.restaurant_id == restaurant_id).first()
 
     if target_restaurant is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="Restaurant not found")
 
     try:
-        main.cursor.execute("""UPDATE restaurants SET  restaurant_name=%s, restaurant_email=%s, 
-                            phone_number=%s, rating=%s   
-                            WHERE restaurant_id = %s""",
-                            (data.restaurant_name, data.restaurant_email, data.phone_number,
-                             data.rating, restaurant_id))
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
-    try:
-        main.conn.commit()
+        target_restaurant.restaurant_name = data.restaurant_name
+        target_restaurant.restaurant_email = data.restaurant_email
+        target_restaurant.phone_number = data.phone_number
+        target_restaurant.rating = data.rating
 
+        db.commit()
     except Exception as error:
-        main.conn.rollback()
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
+                            detail={"message": str(error)})
 
     return JSONResponse(status_code=status.HTTP_200_OK,
                         content={"message": "Restaurant updated successfully"},
@@ -102,42 +95,31 @@ def update_restaurant(restaurant_id: int, data: UpdateRestaurant):
 
 
 @restaurant_router.put("/update_logo_restaurants/{restaurant_id}")
-def update_logo(restaurant_id, image_logo: UploadFile = File(...)):
+def update_logo(restaurant_id: int, image_logo: UploadFile = File(...), db: Session = Depends(get_db)):
 
     current_date_time = (datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S'))
     logo_image_name = f"logo_image_{current_date_time}.{image_logo.filename.split('.')[-1]}"
 
     try:
-        main.cursor.execute("""SELECT * FROM restaurants WHERE restaurant_id = %s""",
-                            (restaurant_id,))
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
-    try:
+        target_restaurant = db.query(Restaurant).filter(Restaurant.restaurant_id == restaurant_id).first()
 
-        target_restaurant = main.cursor.fetchone()
     except Exception as error:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
+                            detail={"message": str(error)})
 
     if target_restaurant is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
 
-    old_image_logo = target_restaurant.get('logo')
+    old_image_logo = target_restaurant.logo
 
     try:
-        main.cursor.execute("""UPDATE restaurants SET logo = %s WHERE restaurant_id = %s""",
-                            (logo_image_name, restaurant_id))
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
-    try:
-        main.conn.commit()
+        target_restaurant.logo = logo_image_name
+        db.commit()
 
     except Exception as error:
-        main.conn.rollback()
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
+                            detail={"message": str(error)})
 
     logo_path = f"{os.getcwd()}/static/images/logo/"
 
@@ -152,41 +134,33 @@ def update_logo(restaurant_id, image_logo: UploadFile = File(...)):
                         headers=headers)
 
 
+
 @restaurant_router.put("/update_background_restaurants/{restaurant_id}")
-def update_background(restaurant_id, image_background: UploadFile = File(...)):
+def update_background(restaurant_id: int, image_background: UploadFile = File(...), db: Session = Depends(get_db)):
+
     current_date_time = (datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S'))
     background_image_name = f"background_image_{current_date_time}.{image_background.filename.split('.')[-1]}"
 
     try:
-        main.cursor.execute("""SELECT * FROM restaurants WHERE restaurant_id = %s""",
-                            (restaurant_id,))
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
-    try:
+        target_restaurant = db.query(Restaurant).filter(Restaurant.restaurant_id == restaurant_id).first()
 
-        target_restaurant = main.cursor.fetchone()
     except Exception as error:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
+                            detail={"message": str(error)})
+
     if target_restaurant is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
 
-    old_image_background = target_restaurant.get('background_image')
-    try:
-        main.cursor.execute("""UPDATE restaurants SET  background_image = %s WHERE restaurant_id = %s""",
-                            (background_image_name, restaurant_id))
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
+    old_image_background = target_restaurant.background_image
 
     try:
-        main.conn.commit()
+        target_restaurant.background_image = background_image_name
+        db.commit()
 
     except Exception as error:
-        main.conn.rollback()
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
+                            detail={"message": str(error)})
 
     background_path = f"{os.getcwd()}/static/images/background/"
 
@@ -202,41 +176,21 @@ def update_background(restaurant_id, image_background: UploadFile = File(...)):
 
 
 @restaurant_router.delete("/delete_restaurant/{restaurant_id}")
-def delete_restaurant(restaurant_id: int):
-    try:
-        main.cursor.execute("""SELECT logo, background_image FROM restaurants WHERE restaurant_id = %s""",
-                            (restaurant_id,))
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
-    try:
+def delete_restaurant(restaurant_id: int, db: Session = Depends(get_db)):
 
-        target_restaurant = main.cursor.fetchone()
+    try:
+        target_restaurant = db.query(Restaurant).filter(Restaurant.restaurant_id == restaurant_id).first()
 
     except Exception as error:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
+                            detail={"message": str(error)})
 
     if target_restaurant is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                                detail="Restaurant not found")
-    try:
-        main.cursor.execute("""DELETE FROM restaurants WHERE restaurant_id = %s""",
-                            (restaurant_id,))
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
+                             detail="Restaurant not found")
 
-    try:
-        main.conn.commit()
-    except Exception as error:
-        main.conn.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
-
-    logo_path = os.path.join(os.getcwd(), "static", "images", "logo", target_restaurant.get('logo', ''))
-    background_path = os.path.join(os.getcwd(), "static", "images", "background",
-                                       target_restaurant.get('background_image', ''))
+    logo_path = os.path.join(os.getcwd(), "static", "images", "logo", target_restaurant.logo or '')
+    background_path = os.path.join(os.getcwd(), "static", "images", "background", target_restaurant.background_image or '')
 
     if os.path.exists(logo_path):
         os.remove(logo_path)
@@ -244,189 +198,171 @@ def delete_restaurant(restaurant_id: int):
     if os.path.exists(background_path):
         os.remove(background_path)
 
+    try:
+        db.delete(target_restaurant)
+        db.commit()
+
+    except Exception as error:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail={"message": str(error)})
+
     return JSONResponse(status_code=status.HTTP_200_OK,
                         content={"message": "Restaurant successfully deleted"},
                         headers=headers)
 
 
+
+def model_to_dict(model):
+    return {c.name: getattr(model, c.name) for c in model.__table__.columns}
+
 @restaurant_router.get("/get_restaurant_by_id/{restaurant_id}")
-def get_restaurant_by_id(restaurant_id: int):
+def get_restaurant_by_id(restaurant_id: int, db: Session = Depends(get_db)):
     try:
-        main.cursor.execute("""SELECT * FROM restaurants WHERE restaurant_id=%s""",
-                            (restaurant_id,))
-
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail=f"No restaurant found with {restaurant_id} id"
-                                   f"ERROR: {error}")
-
-    try:
-        restaurant = main.cursor.fetchone()
-
+        restaurant = db.query(Restaurant).filter(Restaurant.restaurant_id == restaurant_id).first()
     except Exception as error:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail="An error occurred while searching for the restaurant"
-                            f"ERROR: {error}")
+                            detail=f"An error occurred while searching for the restaurant. ERROR: {error}")
 
     if restaurant is None:
-        raise HTTPException(status_code=404,
-                            detail=f"Restaurant with id {restaurant_id} was not found!")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                             detail=f"Restaurant with id {restaurant_id} was not found!")
 
-    return JSONResponse(content=restaurant,
-                        headers=headers)
+    return JSONResponse(content={"restaurant": model_to_dict(restaurant)}, headers=headers)
 
 
 @restaurant_router.get("/get_all_restaurants")
-def get_all_restaurants(page: int = Query(default=1, ge=1)):
+def get_all_restaurants(page: int = Query(default=1, ge=1), db: Session = Depends(get_db)):
     per_page = 20
     try:
-     main.cursor.execute("SELECT count(*) FROM restaurants")
-
+        count = db.query(func.count(Restaurant.restaurant_id)).scalar()
     except Exception as error:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
-    try:
-        count = main.cursor.fetchone()['count']
+                            detail={"message": str(error)})
 
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
     if count == 0:
         return JSONResponse(content=[], headers=headers)
 
     max_page = (count - 1) // per_page + 1
-
     if page > max_page:
         page = max_page
 
     offset = (page - 1) * per_page
 
     try:
-        main.cursor.execute("SELECT * FROM restaurants LIMIT %s OFFSET %s",
-                            (per_page, offset))
+        restaurants = db.query(Restaurant).limit(per_page).offset(offset).all()
     except Exception as error:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail={"message": str(error)})
-
-    try:
-        restaurants = main.cursor.fetchall()
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail=f"An error occurred while searching for all restaurants. ERROR: {str(error)}")
 
     if not restaurants:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="Restaurants were not found!")
 
+    restaurants_data = [model_to_dict(restaurant) for restaurant in restaurants]
+
     return JSONResponse(status_code=status.HTTP_200_OK,
                         content={
-                            "restaurants": restaurants,
+                            "restaurants": restaurants_data,
                             "page": page,
                             "total_pages": max_page,
                             "total_restaurants": count
                         }, headers=headers)
 
 
-@restaurant_router.get("/get_logo/{logo_path}")
-def get_image_logo(logo_path: str):
-    path = f"{os.getcwd()}/static/images/logo/{logo_path}"
-    if os.path.exists(path):
-        return FileResponse(path)
-    return JSONResponse(
-        headers=headers,
+@restaurant_router.get("/get_logo/{restaurant_id}")
+def get_logo_image(restaurant_id: int, db: Session = Depends(get_db)):
+    restaurant = db.query(Restaurant).filter(Restaurant.restaurant_id == restaurant_id).first()
+
+    if not restaurant or not restaurant.logo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Logo image not found"
+        )
+
+    file_name = restaurant.logo
+    file_path = f"{os.getcwd()}/static/images/logo/{file_name}"
+
+    if os.path.exists(file_path):
+        return FileResponse(file_path)
+
+    raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
-        content={
-            "message": "File not found"
-        }
+        detail="File not found"
     )
 
 
-@restaurant_router.get("/get_background/{background_path}")
-def get_image_background(background_path: str):
-    path = f"{os.getcwd()}/static/images/background/{background_path}"
-    if os.path.exists(path):
-        return FileResponse(path)
-    return JSONResponse(
-        headers=headers,
+@restaurant_router.get("/get_background/{restaurant_id}")
+def get_background_image(restaurant_id: int, db: Session = Depends(get_db)):
+    restaurant = db.query(Restaurant).filter(Restaurant.restaurant_id == restaurant_id).first()
+
+    if not restaurant or not restaurant.background_image:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Background image not found"
+        )
+
+    file_name = restaurant.background_image
+    file_path = f"{os.getcwd()}/static/images/background/{file_name}"
+
+    if os.path.exists(file_path):
+        return FileResponse(file_path)
+
+    raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
-        content={
-            "message": "File not found"
-        }
+        detail="File not found"
     )
+
+
 
 
 @restaurant_router.get("/get-all-foods-by-type/{restaurant_id}")
-def get_all_foods_by_type(restaurant_id: int, food_kind: str, page: int = Query(default=1, ge=1)):
-    try:
-        main.cursor.execute("""SELECT * FROM restaurants WHERE restaurant_id=%s""",
-                            (restaurant_id,))
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"ERROR": {str(error)}})
-
-    try:
-        restaurant = main.cursor.fetchone()
-
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"ERROR": {str(error)}})
-
-    if not restaurant:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail={"message": f"Restaurant by {restaurant_id} not found"})
-
+def get_all_foods_by_type(
+    restaurant_id: int,
+    food_kind: str,
+    page: int = Query(default=1, ge=1),
+    db: Session = Depends(get_db)):
     per_page = 20
-    try:
 
-        main.cursor.execute("SELECT count(*) FROM foods WHERE restaurant_id=%s AND kind=%s""",
-                            (restaurant_id, food_kind))
 
-        count = main.cursor.fetchone()['count']
+    restaurant = db.query(Restaurant).filter(Restaurant.restaurant_id == restaurant_id).first()
+    if not restaurant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"message": f"Restaurant with ID {restaurant_id} not found"}
+        )
 
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
+    count = db.query(func.count(Food.food_id)).filter(
+        Food.restaurant_id == restaurant_id, Food.kind == food_kind
+    ).scalar()
 
     if count == 0:
-        return JSONResponse(status_code=status.HTTP_200_OK,content=[], headers=headers)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"food_ids": [], "data": {"page": 1, "total_pages": 0, "total_foods": 0}},
+            headers=headers
+        )
+
 
     max_page = (count - 1) // per_page + 1
-
-    if page > max_page:
-        page = max_page
-
+    page = min(page, max_page)
     offset = (page - 1) * per_page
 
-    try:
-        main.cursor.execute("""SELECT * FROM foods WHERE restaurant_id=%s AND kind=%s LIMIT %s OFFSET %s""",
-                            (restaurant_id, food_kind, per_page, offset))
+    foods = db.query(Food).filter(
+        Food.restaurant_id == restaurant_id,
+        Food.kind == food_kind
+    ).offset(offset).limit(per_page).all()
 
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"ERROR": {str(error)}})
+    food_ids = [food.id for food in foods]
 
-    try:
-        foods = main.cursor.fetchall()
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail=f"An error occurred while searching for all foods by kind. ERROR: {str(error)}")
-
-    if not foods:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail="Foods were not found!")
-
-    food_ids = [food.get("food_id") for food in foods]
-
-    data = {
-        "page": page,
-        "total_pages": max_page,
-        "total_foods": count
-    }
 
     content = {
         "food_ids": food_ids,
-        "data": data
+        "data": {
+            "page": page,
+            "total_pages": max_page,
+            "total_foods": count
+        }
     }
 
     return JSONResponse(status_code=status.HTTP_200_OK, content=content, headers=headers)
-

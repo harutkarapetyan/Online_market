@@ -1,11 +1,12 @@
-from fastapi import HTTPException, status, Depends, APIRouter, Query
+from fastapi import HTTPException, status, Depends, APIRouter, Form
 from fastapi.responses import JSONResponse
-
-import main
+from sqlalchemy.orm import Session
 
 from core import security
-
 from schemas.shemas import AddCard
+from models.models import Card
+from database import get_db
+
 
 card_router = APIRouter(tags=["cards"], prefix="/cards")
 
@@ -16,190 +17,167 @@ headers = {"Access-Control-Allow-Origin": "*",
 
 
 @card_router.post("/add-card")
-def add_card(card_data: AddCard, current_user=Depends(security.get_current_user)):
+def add_card(card_data: AddCard, db: Session = Depends(get_db), current_user = Depends(security.get_current_user)):
     user_id = dict(current_user).get("user_id")
 
-    try:
-        main.cursor.execute("""INSERT INTO cards (card_number, card_valid_thru, card_name, card_cvv, user_id)
-            VALUES (%s, %s, %s, %s, %s)""",
-                            (card_data.card_number, card_data.card_valid_thru, card_data.card_name,
-                             card_data.card_cvv, user_id))
-        main.conn.commit()
+    new_card = Card(
+        card_number=card_data.card_number,
+        card_valid_thru=card_data.card_valid_thru,
+        card_name=card_data.card_name,
+        card_cvv=card_data.card_cvv,
+        user_id=user_id
+    )
 
+    try:
+        db.add(new_card)
+        db.commit()
+        db.refresh(new_card)
     except Exception as error:
-        main.conn.rollback()
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": f"There was an error adding card"
-                                               f"ERROR: {error}"})
+                            detail={"message": f"There was an error adding the card. ERROR: {error}"})
 
     return JSONResponse(status_code=status.HTTP_200_OK,
-                        content={"message": "card successfully added"},
+                        content={"message": "Card successfully added"},
                         headers=headers)
 
 
+
 @card_router.delete("/delete-card-by-id/{card_id}")
-def delete_card_by_id(card_id: int, current_user=Depends(security.get_current_user)):
+def delete_card_by_id(card_id: int, db: Session = Depends(get_db), current_user=Depends(security.get_current_user)):
     user_id = dict(current_user).get("user_id")
 
-    try:
-        main.cursor.execute("SELECT user_id FROM cards WHERE card_id=%s",
-                            (card_id,))
+    card = db.query(Card).filter(Card.card_id == card_id).first()
 
-        user_id_checked = main.cursor.fetchone()
-
-    except Exception as error:
-        main.conn.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": f"There was an error getting user_id"
-                                               f"ERROR: {error}"})
-
-    if user_id_checked is None:
+    if not card:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail=f"Card with ID {card_id} not found.")
 
-    if user_id_checked == user_id:
+    if card.user_id != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                            detail={"message": "You do not have permission to delete this card."})
+                            detail="You do not have permission to delete this card.")
 
     try:
-        main.cursor.execute("DELETE FROM cards WHERE card_id=%s", (card_id,))
-
-        main.conn.commit()
+        db.delete(card)
+        db.commit()
 
         return JSONResponse(status_code=status.HTTP_200_OK,
                             content={"message": "Successfully deleted"},
                             headers=headers)
 
     except Exception as error:
-        main.conn.rollback()
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": f"There was an error deleting card"
-                                               f"ERROR: {error}"})
+                            detail={"message": f"There was an error deleting card. ERROR: {error}"})
+
 
 
 @card_router.get("/get-card-by-id/{card_id}")
-def get_card_by_id(card_id: int, current_user=Depends(security.get_current_user)):
+def get_card_by_id(card_id: int,  db: Session = Depends(get_db), current_user=Depends(security.get_current_user)):
     user_id = dict(current_user).get("user_id")
 
     try:
-        main.cursor.execute("SELECT user_id FROM cards WHERE card_id=%s",
-                            (card_id,))
+        card = db.query(Card).filter(Card.card_id == card_id).first()
 
-        user_id_checked = main.cursor.fetchone()
+        if not card:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                                detail=f"Card with ID {card_id} not found.")
 
-    except Exception as error:
-        main.conn.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": f"There was an error getting user_id"
-                                               f"ERROR: {error}"})
-
-    if user_id_checked == user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                            detail={"message": "You do not have permission to get this card."})
-
-    try:
-        main.cursor.execute("""SELECT * FROM cards WHERE card_id=%s""",
-                            (card_id,))
-
-        card = main.cursor.fetchone()
+        if card.user_id != user_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                                detail="You do not have permission to access this card.")
 
         return JSONResponse(status_code=status.HTTP_200_OK,
-                            content=card,
+                            content={
+                                "card_id": card.card_id,
+                                "card_number": card.card_number,
+                                "card_valid_thru": card.card_valid_thru,
+                                "card_name": card.card_name,
+                                "card_cvv": card.card_cvv,
+                                "user_id": card.user_id
+                            },
                             headers=headers)
 
     except Exception as error:
-        main.conn.rollback()
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": f"There was an error getting card"
-                                               f"ERROR: {error}"})
+                            detail={"message": f"There was an error retrieving the card. ERROR: {error}"})
+
 
 
 @card_router.get("/get-all-cards-by-user")
-def get_all_cards_by_user(current_user=Depends(security.get_current_user)):
+def get_all_cards_by_user(db: Session = Depends(get_db), current_user = Depends(security.get_current_user)):
     user_id = dict(current_user).get("user_id")
 
     try:
-        main.cursor.execute("""SELECT * FROM cards WHERE user_id=%s""",
-                            (user_id,))
+        cards = db.query(Card).filter(Card.user_id == user_id).all()
 
-        cards = main.cursor.fetchall()
-
-        if cards is None:
+        if not cards:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                                 detail={"message": "User doesn't have cards"})
 
-        return JSONResponse(status_code=status.HTTP_200_OK,
-                            content=cards,
-                            headers=headers)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=[
+                {
+                    "card_id": card.card_id,
+                    "card_number": card.card_number,
+                    "card_valid_thru": card.card_valid_thru,
+                    "card_name": card.card_name,
+                    "card_cvv": card.card_cvv,
+                    "status": card.status
+                } for card in cards
+            ],
+            headers=headers
+        )
 
     except Exception as error:
-        main.conn.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": f"There was an error getting cards"
-                                               f"ERROR: {error}"})
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": f"There was an error getting cards. ERROR: {error}"}
+        )
+
 
 
 @card_router.put("/change-main-card/{card_id}")
-def change_main_card(card_id: int, current_user=Depends(security.get_current_user)):
+def change_main_card(card_id: int, db: Session = Depends(get_db), current_user=Depends(security.get_current_user)):
     user_id = dict(current_user).get("user_id")
 
-    try:
-        main.cursor.execute("SELECT user_id FROM cards WHERE card_id=%s", (card_id,))
-        result = main.cursor.fetchone()
+    card = db.query(Card).filter(Card.card_id == card_id).first()
 
-    except Exception as error:
-        main.conn.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": f"There was an error getting user_id. ERROR: {error}"})
+    if not card:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Card with ID {card_id} not found."
+        )
 
-    if result is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Card with ID {card_id} not found.")
+    if card.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"message": "You do not have permission to change this card."}
+        )
 
-    user_id_checked = result['user_id']
 
-    if user_id_checked != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                            detail={"message": "You do not have permission to change this card."})
-
-    try:
-        main.cursor.execute("SELECT card_id FROM cards WHERE user_id=%s AND status=%s", (user_id, True))
-        result = main.cursor.fetchone()
-
-    except Exception as error:
-        main.conn.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": f"There was an error getting the current main card. ERROR: {error}"})
-
-    card_id_old = result['card_id'] if result else None
-
-    if card_id_old is None:
-        try:
-            main.cursor.execute("UPDATE cards SET status = %s WHERE card_id = %s", (True, card_id))
-            main.conn.commit()
-            return JSONResponse(status_code=status.HTTP_200_OK, content={"message": f"{card_id} is now the main card"})
-
-        except Exception as error:
-            main.conn.rollback()
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                                detail={
-                                    "message": f"There was an error updating the status of {card_id}. ERROR: {error}"})
+    current_main_card = db.query(Card).filter(Card.user_id == user_id, Card.status == True).first()
 
     try:
-        main.cursor.execute("UPDATE cards SET status = %s WHERE card_id = %s", (False, card_id_old))
-        main.conn.commit()
+        if current_main_card:
+
+            current_main_card.status = False
+            db.commit()
+
+        card.status = True
+        db.commit()
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"message": f"{card_id} is now the main card"}
+        )
 
     except Exception as error:
-        main.conn.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={
-                                "message": f"There was an error updating the status of the old main card {card_id_old}. ERROR: {error}"})
-
-    try:
-        main.cursor.execute("UPDATE cards SET status = %s WHERE card_id = %s", (True, card_id))
-        main.conn.commit()
-        return JSONResponse(status_code=status.HTTP_200_OK, content={"message": f"the main map was successfully changed"})
-
-    except Exception as error:
-        main.conn.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": f"There was an error updating the status of {card_id}. ERROR: {error}"})
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": f"There was an error updating the card status. ERROR: {error}"}
+        )

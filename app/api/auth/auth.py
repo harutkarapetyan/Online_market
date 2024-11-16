@@ -1,19 +1,14 @@
-# Standard libs
-import datetime
-
-
-# FastAPI
-from fastapi import HTTPException, status, Depends, APIRouter, Query, Form, UploadFile, File
+from fastapi import APIRouter, HTTPException, status, Depends, Form, UploadFile, File, Query
 from fastapi.responses import JSONResponse, FileResponse
-import main
-import shutil
+from sqlalchemy.orm import Session
+import datetime
 import os
-from core.confirm_registration import mail_verification_email
-
+import shutil
+from models.models import User  # Assuming the SQLAlchemy User model is in the models.py file
 from core import security
-
+from core.confirm_registration import mail_verification_email
 from schemas.shemas import UserAdd, UserLogin
-
+from database import get_db
 
 auth_router = APIRouter(tags=["auth"], prefix="/auth")
 
@@ -24,29 +19,16 @@ headers = {"Access-Control-Allow-Origin": "*",
 
 
 @auth_router.get("/mail_verification/{email}")
-def verify_email(email: str):
-    try:
-        main.cursor.execute("""SELECT email FROM users WHERE email=%s""",
-                            (email,))
+def verify_email(email: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == email).first()
 
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                       detail={"message": f"There was a error looking up the user in the authentication pool\n{error}"})
-
-    email_checked = main.cursor.fetchone()
-
-    if email_checked is None:
+    if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail={"message": "User not found"})
-    try:
+                            detail="User not found")
 
-        main.cursor.execute("""UPDATE users SET status=%s WHERE email=%s""",
-                            (True, email))
-
-        main.conn.commit()
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": f"An error occurred while updating user data\n{error}"})
+    user.status = True
+    db.commit()
+    db.refresh(user)
 
     return JSONResponse(status_code=status.HTTP_200_OK,
                         content={"message": "You have successfully passed the verification"},
@@ -56,56 +38,39 @@ def verify_email(email: str):
 @auth_router.post("/add-user")
 def add_user(name: str = Form(...), email: str = Form(...), password: str = Form(...),
              confirm_password: str = Form(...), phone_number: str = Form(...),
-             profile_image: UploadFile = File(...)): # Changed here
-
+             profile_image: UploadFile = File(...), db: Session = Depends(get_db)):
+    global profile_image_name
     current_date_time = (datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S'))
 
-    # Setting default profile image if none is provided
     if profile_image:
         profile_image_name = f"profile_image_{current_date_time}.{profile_image.filename.split('.')[-1]}"
     # else:
-    #     profile_image_name = f"default-avatar_{current_date_time}.{profile_image.filename.split('.')[-1]}"
+        # profile_image_name = f"default-avatar_{current_date_time}.png"
 
     if password != confirm_password:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                             detail="Incorrect password")
 
-    user_password = password
-    user_hashed_password = security.hash_password(user_password)
+    user_hashed_password = security.hash_password(password)
 
-    # Check if email already exists
-    try:
-        main.cursor.execute(
-            "SELECT email FROM users WHERE email = %s",
-            (email,))
-        check_email = main.cursor.fetchone()
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
 
-    if check_email:
+    if db.query(User).filter(User.email == email).first():
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Email already exists")
 
     # Insert user into database
-    try:
-        main.cursor.execute("""INSERT INTO users (name, email, password, phone_number, profile_image)
-                            VALUES (%s, %s, %s, %s, %s) RETURNING *""",
-                            (name, email, user_hashed_password, phone_number, profile_image_name))
-    except Exception as error:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"message": error}
-        )
+    new_user = User(
+        name=name,
+        email=email,
+        password=user_hashed_password,
+        phone_number=phone_number,
+        profile_image=profile_image_name
+    )
 
-    # Commit transaction
-    try:
-        main.conn.commit()
-    except Exception as error:
-        main.conn.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
 
     # Save profile image if provided
     if profile_image:
@@ -113,22 +78,11 @@ def add_user(name: str = Form(...), email: str = Form(...), password: str = Form
             with open(f"{os.getcwd()}/static/images/profile_image/{profile_image_name}", "wb") as file_object:
                 shutil.copyfileobj(profile_image.file, file_object)
         except Exception as error:
-            main.conn.rollback()
+            db.rollback()
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                                 detail={"message": error})
 
-    # Fetch created user
-    try:
-        user = main.cursor.fetchone()
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail="Error in user-add fetch!\n"
-                                   f"ERR: {error}")
-
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail="User not created")
-
+    # Send verification email
     mail_verification_email(email)
 
     return JSONResponse(status_code=status.HTTP_201_CREATED,
@@ -137,80 +91,44 @@ def add_user(name: str = Form(...), email: str = Form(...), password: str = Form
 
 
 @auth_router.get("/get-one-user-by-id/{user_id}")
-def get_user_by_id(user_id: int):
-    # current_user=Depends(security.get_current_user)
+def get_user_by_id(user_id: int, db: Session = Depends(get_db)):
     try:
-        main.cursor.execute("""SELECT user_id, name, email, phone_number, address, profile_image, status
-                   FROM users WHERE user_id=%s""",
-                            (user_id,))
-
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail="Error occurred while trying to select user "
-                                   f"by id {user_id}\n"
-                                   f"ERROR: {error}")
-
-    try:
-        user = main.cursor.fetchone()
-
+        user = db.query(User).filter(User.user_id == user_id).first()
     except Exception as error:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail="Error occurred while trying to fetch selected user "
-                                   f"by id {user_id}\n"
-                                   f"ERROR: {error}")
+                            detail=f'Error occurred while fetching user by id {user_id} ERROR: {error}')
 
     if user is None:
-        raise HTTPException(status_code=404,
-                            detail=f"User with id {user_id} was not found!")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                             detail=f"User with id {user_id} was not found!")
 
-    return JSONResponse(status_code=status.HTTP_200_OK, content=user,
+    # Return the user data as a JSON response
+    return JSONResponse(status_code=status.HTTP_200_OK,
+                        content={"user_id": user.user_id, "name": user.name, "email": user.email,
+                                 "phone_number": user.phone_number, "address": user.address,
+                                 "profile_image": user.profile_image, "status": user.status},
                         headers=headers)
 
+
+
 @auth_router.put("/update_profile_image/{user_id}")
-def update_profile_image(user_id: int,
-                  profile_image: UploadFile = File(...)):
-    # current_user = Depends(security.get_current_user)
-    current_date_time = (datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S'))
+def update_profile_image(user_id: int, profile_image: UploadFile = File(...), db: Session = Depends(get_db)):
+    current_date_time = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
     profile_image_name = f"profile_image_{current_date_time}.{profile_image.filename.split('.')[-1]}"
 
-    try:
-        main.cursor.execute("""SELECT * FROM users WHERE user_id= %s""", (user_id,))
-
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-
-                            detail={"message": error})
-    try:
-        target_user = main.cursor.fetchone()
-
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
+    # Query to find the user by ID
+    target_user = db.query(User).filter(User.user_id == user_id).first()
 
     if target_user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail="User not found")
+                             detail="User not found")
 
-    old_image_path = target_user.get('profile_image')
-
-    try:
-
-        main.cursor.execute("""UPDATE users SET profile_image = %s WHERE user_id = %s""",
-                            (profile_image_name, user_id))
-
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
-    try:
-
-        main.conn.commit()
-
-    except Exception as error:
-        main.conn.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
+    old_image_path = target_user.profile_image
 
     try:
+        target_user.profile_image = profile_image_name
+        db.commit()
+
 
         if old_image_path and os.path.exists(f"{os.getcwd()}/static/images/profile_image/{old_image_path}"):
             os.remove(f"{os.getcwd()}/static/images/profile_image/{old_image_path}")
@@ -219,9 +137,9 @@ def update_profile_image(user_id: int,
             shutil.copyfileobj(profile_image.file, file_object)
 
     except Exception as error:
-        main.conn.rollback()
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": str(error)})
+                             detail=f"Error updating profile image: {str(error)}")
 
     return JSONResponse(status_code=status.HTTP_200_OK,
                         content={"message": "Profile picture updated successfully"},
@@ -229,101 +147,89 @@ def update_profile_image(user_id: int,
 
 
 
-@auth_router.get("/get_profile_image/{file}")
-def get_profile_image(file: str):
-    path = f"{os.getcwd()}/static/images/profile_image/{file}"
-    if os.path.exists(path):
-        return FileResponse(path)
-    return JSONResponse(
-        headers=headers,
+@auth_router.get("/get_profile_image/{user_id}")
+def get_profile_image(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.user_id == user_id).first()
+
+    if not user or not user.profile_image:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile image not found"
+        )
+
+    file_path = f"{os.getcwd()}/static/images/profile_image/{user.profile_image}"
+
+    if os.path.exists(file_path):
+        return FileResponse(file_path)
+
+    raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
-        content={
-            "message": "File not found"
-        }
+        detail="File not found"
     )
 
 
 
+
 @auth_router.delete("/delete-user/{user_id}")
-def delete_user(user_id: int):
-    # current_user=Depends(security.get_current_user)
+def delete_user(user_id: int, db: Session = Depends(get_db)):
+    target_user = db.query(User).filter(User.user_id == user_id).first()
 
-    main.cursor.execute("""SELECT * FROM users WHERE user_id=%s""",
-                            (user_id,))
-    target_user = main.cursor.fetchone()
     if target_user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail={"message": "user not found"})
-    try:
-        main.cursor.execute("""DELETE FROM users WHERE user_id=%s""",
-                            (user_id,))
-        main.conn.commit()
-    except Exception as error:
-        main.conn.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    profile_image_path = os.path.join(os.getcwd(), "static", "images", "profile_image", target_user.get('profile_image', ''))
+    try:
+        db.delete(target_user)
+        db.commit()
+    except Exception as error:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail={"message": str(error)})
+
+    profile_image_path = os.path.join(os.getcwd(), "static", "images", "profile_image", target_user.profile_image)
 
     if os.path.exists(profile_image_path):
         os.remove(profile_image_path)
 
-
-
-    return JSONResponse(status_code=status.HTTP_200_OK,
-                        content={"message": "Successfully deleted"},
-                        headers=headers)
+    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Successfully deleted"}, headers=headers)
 
 
 
 @auth_router.post("/login")
-def login(login_data: UserLogin):
+def login(login_data: UserLogin, db: Session = Depends(get_db)):
     user_email = login_data.email
-    try:
-        main.cursor.execute("""SELECT * FROM users WHERE email=%s""",
-                            (user_email,))
-        user = main.cursor.fetchone()
 
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": error})
+    user = db.query(User).filter(User.email == user_email).first()
 
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail=f"User with email '{user_email}' was not found!")
 
-    user = dict(user)
-    if not user.get("status"):
+    if not user.status:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                            detail={"message": """You cannot log in because you have not completed authentication. Please check your email."""})
+                            detail="You cannot log in because you have not completed authentication. Please check your email.")
 
-    user_hashed_password = user.get("password")
-
-    if not security.verify_password(login_data.password, user_hashed_password):
+    if not security.verify_password(login_data.password, user.password):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                            detail=f"Wrong password")
+                            detail="Wrong password")
 
-    user_id = user.get("user_id")
-    access_token = security.create_access_token({"user_id": user_id})
+    access_token = security.create_access_token({"user_id": user.user_id})
 
     return JSONResponse(status_code=status.HTTP_200_OK,
                         content={
                             "Message": "Successfully logged in! Your access token",
                             "access_token": access_token,
-                            "user_id": user_id
+                            "user_id": user.user_id
                         },
                         headers=headers)
 
 
 @auth_router.get("/get_all_users")
-def get_all_users(page: int = Query(default=1, ge=1)):
+def get_all_users(page: int = Query(default=1, ge=1), db: Session = Depends(get_db)):
     per_page = 20
 
-    main.cursor.execute("SELECT count(*) FROM users")
-    count = main.cursor.fetchall()[0]['count']
+    count = db.query(User).count()
+
     if count == 0:
-        return JSONResponse(status_code=status.HTTP_200_OK, content=[],
-                            headers=headers)
+        return JSONResponse(status_code=status.HTTP_200_OK, content=[], headers=headers)
 
     max_page = (count - 1) // per_page + 1
 
@@ -332,34 +238,29 @@ def get_all_users(page: int = Query(default=1, ge=1)):
 
     offset = (page - 1) * per_page
 
-    try:
+    users = db.query(User.user_id, User.name, User.email, User.phone_number, User.address, User.profile_image, User.status) \
+              .limit(per_page) \
+              .offset(offset) \
+              .all()
 
-        main.cursor.execute("""
-                   SELECT user_id, name, email, phone_number, address, profile_image, status 
-                   FROM users LIMIT %s OFFSET %s""", (per_page, offset))
-
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": str(error)})
-
-    try:
-
-        users = main.cursor.fetchall()
-
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail=f"An error occurred while searching for all users. ERROR: {str(error)}")
-
-    if not users:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail=f"Users were not found!")
+    users_list = [
+        {
+            "user_id": user.user_id,
+            "name": user.name,
+            "email": user.email,
+            "phone_number": user.phone_number,
+            "address": user.address,
+            "profile_image": user.profile_image,
+            "status": user.status,
+        }
+        for user in users
+    ]
 
     return JSONResponse(status_code=status.HTTP_200_OK,
                         content={
-                                "users": users,
-                                "page": page,
-                                "total_pages": max_page,
-                                "total_users": count
-                                },
+                            "users": users_list,
+                            "page": page,
+                            "total_pages": max_page,
+                            "total_users": count
+                        },
                         headers=headers)
-

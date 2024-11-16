@@ -1,12 +1,16 @@
-from fastapi import APIRouter, HTTPException, status
-from fastapi.responses import JSONResponse
-import random
+from sqlalchemy.orm import Session
+from sqlalchemy import text
 
-import main
+import random
+from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi.responses import JSONResponse
+
 from services.service_email import send_email
-from schemas.shemas import PasswordReset
-from services.db_service import get_row, add_row
 from core import security
+from database import get_db
+from models.models import User, RessetPassword
+from services.db_service import get_row, add_row
+from schemas.shemas import PasswordReset
 
 forgot_router = APIRouter(tags=["Forgot password"], prefix="/password_reset")
 
@@ -15,13 +19,12 @@ password = "ngzr kwsw jvcs oiae"
 
 
 @forgot_router.post("/request/{email}")
-def forgot_password(email):
+def forgot_password(email: str, db: Session = Depends(get_db)):
     try:
-        target_user = get_row("users",
-                              {"email": email})
+        criteria = {"email": email}
+        target_user = get_row(db, User, criteria)
 
     except Exception as error:
-        main.conn.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail={"message": error})
 
@@ -40,7 +43,7 @@ def forgot_password(email):
                     YOUR CODE
                     {code}
 
-                    If you did not request a password reset you can safely ignore this emai
+                    If you did not request a password reset you can safely ignore this email
                   """
         send_email(subject, body, sender, email, password)
 
@@ -50,10 +53,10 @@ def forgot_password(email):
                                     "detail": str(error)})
 
     try:
-        add_row(table="password_reset",
-                data={"user_id": target_user.get('user_id'),
-                      "code": code})
-
+        reset_entry = RessetPassword(user_id=target_user.user_id, code=code)  # Create instance of RessetPassword model
+        db.add(reset_entry)
+        db.commit()
+        db.refresh(reset_entry)
     except Exception as error:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail={"detail": str(error)})
@@ -62,64 +65,64 @@ def forgot_password(email):
                         content={"message": "We sent you a personal CODE, please check your mail"})
 
 
+
 @forgot_router.post('/reset')
-def reset_password(reset_data: PasswordReset):
+def reset_password(reset_data: PasswordReset, db: Session = Depends(get_db)):
     if reset_data.new_password != reset_data.confirm_password:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                            detail="New password does not match")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="New password does not match"
+        )
 
     try:
-        email = reset_data.email
-        target_user = get_row("users",
-                              {"email": email})
+
+        target_user = get_row(db, User, {"email": reset_data.email})
 
         if target_user is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                                detail=f"User with {email} was not found")
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": "Something went wrong",
-                                    "detail": str(error)})
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"User with email '{reset_data.email}' was not found"
+            )
 
-    try:
-        reset = get_row("password_reset",
-                        {"user_id": target_user.get('user_id')})
+
+        reset = get_row(db, RessetPassword, {"user_id": target_user.user_id})
+
 
         if reset is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                                detail=f"User by {email} has nor request, please request to change password")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Reset request not found"
+            )
 
-    except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": "Something went wrong",
-                                    "detail": str(error)})
+        if reset_data.code != reset.code:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Invalid or expired reset code"
+            )
 
-    if reset_data.code != reset.get("code"):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail=f"Your CODE is invalid")
-
-    try:
         hashed_password = security.hash_password(reset_data.new_password)
-        main.cursor.execute("""UPDATE users SET password=%s WHERE email=%s""",
-                            (hashed_password, email))
 
-        main.conn.commit()
 
-        main.cursor.execute("""DELETE FROM password_reset WHERE user_id = %s AND code = %s""",
-                            (target_user.get('user_id'), reset_data.code))
+        db.execute(
+            text("UPDATE users SET password=:password WHERE email=:email"),
+            {"password": hashed_password, "email": reset_data.email}
+        )
 
-        main.conn.commit()
+        db.execute(
+            text("DELETE FROM password_reset WHERE user_id = :user_id AND code = :code"),
+            {"user_id": target_user.user_id, "code": reset_data.code}
+        )
 
-        headers = {"Access-Control-Allow-Origin": "*",
-                   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                   "Access-Control-Allow-Headers": "Content-Type, Authorization",
-                   "Access-Control-Allow-Credentials": "true"}
+        db.commit()
 
-        return JSONResponse(status_code=status.HTTP_200_OK,
-                            content={"message": "Password changed successfully"},
-                            headers=headers)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"message": "Password changed successfully"}
+        )
 
     except Exception as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail={"message": "Something went wrong",
-                                    "detail": str(error)})
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": "Something went wrong", "detail": str(error)}
+        )

@@ -1,20 +1,17 @@
+
+
 # FastAPI
-import time
+
 from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse
-
 from fastapi.middleware.cors import CORSMiddleware
 
-
-# SQL - postgres
-import psycopg2
-from psycopg2.extras import RealDictCursor
-
-
-from database import engine
+# Database and models
+from database import engine, check_connection
 from models.models import Base
 
 
+# Routers
 from api.andpoints.food import food_router
 from api.andpoints.favorite_foods import favorite_foods_router
 from api.andpoints.restaurant import restaurant_router
@@ -26,33 +23,13 @@ from api.andpoints.cards import card_router
 from api.andpoints.drinks import drink_router
 
 
-
 Base.metadata.create_all(bind=engine)
-
-while True:
-    try:
-        conn = psycopg2.connect(
-            host='127.0.0.1',
-            port=5432,
-            database='new_menu_am',
-            user='postgres',
-            password='password',
-            cursor_factory=RealDictCursor
-            )
-        print("Connection successfully")
-
-        cursor = conn.cursor()
-        break
-    except Exception as error:
-        print(error)
-        time.sleep(3)
-
+check_connection()
 
 app = FastAPI()
 
-
+# CORS
 origins = ["*"]
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -64,9 +41,7 @@ app.add_middleware(
 
 @app.get("/")
 def main():
-
-    return JSONResponse(status_code=status.HTTP_200_OK,
-                        content={"message": "OK"})
+    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "OK"})
 
 
 app.include_router(food_router)
@@ -78,5 +53,3 @@ app.include_router(drink_router)
 app.include_router(auth_router)
 app.include_router(forgot_router)
 app.include_router(card_router)
-
-

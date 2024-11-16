@@ -1,6 +1,4 @@
 from services.service_email import send_email
-import random
-import string
 
 
 def mail_body(email):

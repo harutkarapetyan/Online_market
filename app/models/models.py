@@ -26,7 +26,7 @@ class Card(Base):
     card_valid_thru = Column(String, nullable=False)  # "MM/YYYY"
     card_name = Column(String, nullable=False)
     card_cvv = Column(Integer, nullable=False)
-    status = Column(Boolean, nullable=False, server_default="False")
+    status = Column(Boolean, nullable=False, server_default="False") #main_card
     user_id = Column(Integer, ForeignKey("users.user_id"))
 
 
@@ -37,6 +37,7 @@ class Order(Base):
     address_to = Column(String, nullable=False)
     user_id = Column(Integer, ForeignKey("users.user_id"))
     food_id = Column(Integer, ForeignKey("foods.food_id"))
+    drink_id = Column(Integer, ForeignKey("drinks.drink_id"))
 
 
 class FavoriteFood(Base):

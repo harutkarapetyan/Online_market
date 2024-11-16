@@ -40,6 +40,7 @@ class UpdateFood(BaseModel):
     cook_time: int
     food_name: str
     description: str
+    rating: float
     restaurant_id: int
 
 
@@ -55,6 +56,7 @@ class AddCard(BaseModel):
     card_valid_thru: str
     card_name: str
     card_cvv: int
+
 
 
 
