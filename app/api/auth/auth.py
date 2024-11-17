@@ -18,6 +18,7 @@ headers = {"Access-Control-Allow-Origin": "*",
            "Access-Control-Allow-Credentials": "true"}
 
 
+
 @auth_router.get("/mail_verification/{email}")
 def verify_email(email: str, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == email).first()
