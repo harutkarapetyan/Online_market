@@ -10,7 +10,7 @@ from core.confirm_registration import mail_verification_email
 from schemas.shemas import UserAdd, UserLogin
 from database import get_db
 
-auth_router = APIRouter(tags=["auth"], prefix="/auth")
+auth_router = APIRouter(tags=["auth"], prefix="/api/auth")
 
 headers = {"Access-Control-Allow-Origin": "*",
            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",

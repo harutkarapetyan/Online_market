@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models.models import FavoriteRestaurant, User, Restaurant
 
-favorite_restaurants_router = APIRouter(tags=["favorite_restaurants"], prefix="/favorite_restaurants")
+favorite_restaurants_router = APIRouter(tags=["favorite_restaurants"], prefix="/api/favorite_restaurants")
 
 headers = {"Access-Control-Allow-Origin": "*",
            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",

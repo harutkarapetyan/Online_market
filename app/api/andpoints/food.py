@@ -8,7 +8,7 @@ import os
 import shutil
 from database import get_db
 
-food_router = APIRouter(tags=["food"], prefix="/food")
+food_router = APIRouter(tags=["food"], prefix="/api/food")
 
 headers = {"Access-Control-Allow-Origin": "*",
            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",

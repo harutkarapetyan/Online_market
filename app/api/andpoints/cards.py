@@ -8,7 +8,7 @@ from models.models import Card
 from database import get_db
 
 
-card_router = APIRouter(tags=["cards"], prefix="/cards")
+card_router = APIRouter(tags=["cards"], prefix="/api/cards")
 
 headers = {"Access-Control-Allow-Origin": "*",
            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",

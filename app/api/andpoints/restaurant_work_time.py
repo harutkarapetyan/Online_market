@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 from services.db_service import get_row, add_row
 from schemas.shemas import RestaurantWorkTimeAdd
 
-restaurant_work_time_router = APIRouter(tags=["Work Times"], prefix="/restaurant/work-time")
+restaurant_work_time_router = APIRouter(tags=["Work Times"], prefix="/api/restaurant/work-time")
 
 headers = {"Access-Control-Allow-Origin": "*",
            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",

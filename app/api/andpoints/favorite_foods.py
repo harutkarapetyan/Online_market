@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from models.models import User, Food, FavoriteFood
 from database import get_db
 
-favorite_foods_router = APIRouter(tags=["favorite_foods"], prefix="/favorite_foods")
+favorite_foods_router = APIRouter(tags=["favorite_foods"], prefix="/api/favorite_foods")
 
 headers = {"Access-Control-Allow-Origin": "*",
            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",

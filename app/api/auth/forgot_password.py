@@ -12,7 +12,7 @@ from models.models import User, ResetPassword
 from services.db_service import get_row, add_row
 from schemas.shemas import PasswordReset
 
-forgot_router = APIRouter(tags=["Forgot password"], prefix="/password_reset")
+forgot_router = APIRouter(tags=["Forgot password"], prefix="/api/password_reset")
 
 sender = "niddleproject@gmail.com"
 password = "ngzr kwsw jvcs oiae"

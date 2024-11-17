@@ -8,7 +8,7 @@ import os
 import shutil
 from database import get_db
 
-drink_router = APIRouter(tags=["drink"], prefix="/drink")
+drink_router = APIRouter(tags=["drink"], prefix="/api/drink")
 
 headers = {"Access-Control-Allow-Origin": "*",
            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",

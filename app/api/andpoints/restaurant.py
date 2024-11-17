@@ -10,7 +10,7 @@ from schemas.shemas import UpdateRestaurant
 from models.models import Restaurant, Food
 from database import get_db
 
-restaurant_router = APIRouter(tags=["restaurant"], prefix="/restaurant")
+restaurant_router = APIRouter(tags=["restaurant"], prefix="/api/restaurant")
 
 headers = {"Access-Control-Allow-Origin": "*",
            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
