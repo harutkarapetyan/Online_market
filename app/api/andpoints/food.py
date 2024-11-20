@@ -16,18 +16,26 @@ headers = {"Access-Control-Allow-Origin": "*",
            "Access-Control-Allow-Credentials": "true"}
 
 
+from enum import Enum
+
+class FoodKind(str, Enum):
+    salads = "salads"
+    hot_dishes = "hot_dishes"
+    fast_food = "fast_food"
+    desserts = "desserts"
+
 @food_router.post("/add_food/{restaurant_id}")
 def add_food(
         restaurant_id: int,
-        kind: str = Form(...),
+        kind: FoodKind = Form(...),
         price: int = Form(...),
         cook_time: int = Form(...),
         food_name: str = Form(...),
         description: str = Form(...),
         rating: float = Form(...),
         image_food: UploadFile = File(...),
-        db: Session = Depends(get_db)
-):
+        db: Session = Depends(get_db)):
+
     current_date_time = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
     food_image_name = f"food_image_{current_date_time}.{image_food.filename.split('.')[-1]}"
 
@@ -235,6 +243,196 @@ def get_all_foods(page: int = Query(default=1, ge=1), db: Session = Depends(get_
     }
 
     return JSONResponse(content=content, headers=headers)
+
+
+@food_router.get("/get_all_salads")
+def get_all_salads(page: int = Query(default=1, ge=1), db: Session = Depends(get_db)):
+    per_page = 20
+
+    try:
+        count = db.query(Food).filter(Food.kind == 'salads').count()
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": f"An error occurred while counting salads. ERROR: {error}"}
+        )
+
+    if count == 0:
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"foods": [], "page": 1, "total_pages": 0, "total_foods": 0},
+            headers=headers,
+        )
+
+    max_page = (count - 1) // per_page + 1
+    page = min(max(page, 1), max_page)
+
+    offset = (page - 1) * per_page
+
+    try:
+        # Fetch the foods
+        foods = db.query(Food).filter(Food.kind == 'salads').offset(offset).limit(per_page).all()
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": f"An error occurred while fetching salads. ERROR: {error}"}
+        )
+
+    if not foods:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No salads found!")
+
+    # Convert results to dictionary format
+    content = {
+        "foods": [model_to_dict(food) for food in foods],
+        "page": page,
+        "total_pages": max_page,
+        "total_foods": count,
+    }
+
+    return JSONResponse(content=content, headers=headers)
+
+
+@food_router.get("/get_all_hot_dishes")
+def get_all_hot_dishes(page: int = Query(default=1, ge=1), db: Session = Depends(get_db)):
+    per_page = 20
+
+    try:
+        count = db.query(Food).filter(Food.kind == 'hot_dishes').count()
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": f"An error occurred while counting hot dishes. ERROR: {error}"}
+        )
+
+    if count == 0:
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"foods": [], "page": 1, "total_pages": 0, "total_foods": 0},
+            headers=headers,
+        )
+
+    max_page = (count - 1) // per_page + 1
+    page = min(max(page, 1), max_page)
+
+    offset = (page - 1) * per_page
+
+    try:
+        # Fetch the foods
+        foods = db.query(Food).filter(Food.kind == 'hot_dishes').offset(offset).limit(per_page).all()
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": f"An error occurred while fetching hot dishes. ERROR: {error}"}
+        )
+
+    if not foods:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hot dishes found!")
+
+    # Convert results to dictionary format
+    content = {
+        "foods": [model_to_dict(food) for food in foods],
+        "page": page,
+        "total_pages": max_page,
+        "total_foods": count,
+    }
+
+    return JSONResponse(content=content, headers=headers)
+
+
+
+@food_router.get("/get_all_fast_food")
+def get_all_fast_food(page: int = Query(default=1, ge=1), db: Session = Depends(get_db)):
+    per_page = 20
+
+    try:
+        count = db.query(Food).filter(Food.kind == 'fast_food').count()
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": f"An error occurred while counting fast food items. ERROR: {error}"}
+        )
+
+    if count == 0:
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"foods": [], "page": 1, "total_pages": 0, "total_foods": 0},
+            headers=headers,
+        )
+
+    max_page = (count - 1) // per_page + 1
+    page = min(max(page, 1), max_page)
+
+    offset = (page - 1) * per_page
+
+    try:
+        # Fetch the foods
+        foods = db.query(Food).filter(Food.kind == 'fast_food').offset(offset).limit(per_page).all()
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": f"An error occurred while fetching fast food items. ERROR: {error}"}
+        )
+
+    if not foods:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No fast food items found!")
+
+    # Convert results to dictionary format
+    content = {
+        "foods": [model_to_dict(food) for food in foods],
+        "page": page,
+        "total_pages": max_page,
+        "total_foods": count,
+    }
+
+    return JSONResponse(content=content, headers=headers)
+
+
+@food_router.get("/get_all_desserts")
+def get_all_desserts(page: int = Query(default=1, ge=1), db: Session = Depends(get_db)):
+    per_page = 20
+
+    try:
+        count = db.query(Food).filter(Food.kind == 'desserts').count()
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": f"An error occurred while counting dessert items. ERROR: {error}"}
+        )
+
+    if count == 0:
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"foods": [], "page": 1, "total_pages": 0, "total_foods": 0},
+            headers=headers,
+        )
+
+    max_page = (count - 1) // per_page + 1
+    page = min(max(page, 1), max_page)
+
+    offset = (page - 1) * per_page
+
+    try:
+        # Fetch the foods
+        foods = db.query(Food).filter(Food.kind == 'desserts').offset(offset).limit(per_page).all()
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": f"An error occurred while fetching dessert items. ERROR: {error}"}
+        )
+
+    if not foods:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No desserts found!")
+
+    # Convert results to dictionary format
+    content = {
+        "foods": [model_to_dict(food) for food in foods],
+        "page": page,
+        "total_pages": max_page,
+        "total_foods": count,
+    }
+
+    return JSONResponse(content=content, headers=headers)
+
 
 
 
